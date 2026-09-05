@@ -11,6 +11,7 @@ import { CollectionSelectorComponent } from '../../../shared/components/collecti
 import { WysiwygInputComponent } from '../../../shared/components/wysiwyg-editor/wysiwyg-editor.component';
 import { EntityRelationshipSelectorComponent } from '../../../shared/components/entity/entity-relationship-selector/entity-relationship-selector.component';
 import { ActivityService } from '../../../services/activity.service';
+import { FacilityService } from '../../../services/facility.service';
 import { EntityFormBaseComponent } from '../../../shared/components/entity/entity-base/entity-form-base.component';
 import { NgbTooltip } from '@ng-bootstrap/ng-bootstrap';
 import { PermissionDirective } from '../../../shared/directives/permission.directive';
@@ -53,6 +54,7 @@ export class FacilityFormComponent extends EntityFormBaseComponent implements On
   public defaultFacilityName = 'New Facility';
   public defaultFacilityType = 'general';
   public facilitySubtypes = [];
+  private siblingFacilityNames: Set<string> = new Set();
   public markerOptions = {
     displayName: this.defaultFacilityName,
     color: '#003366',
@@ -73,6 +75,7 @@ export class FacilityFormComponent extends EntityFormBaseComponent implements On
     cdr: ChangeDetectorRef,
     protected loadingService: LoadingService,
     protected activityService: ActivityService,
+    protected facilityService: FacilityService,
     protected router: Router,
     protected route: ActivatedRoute,
     private fb: FormBuilder
@@ -85,6 +88,10 @@ export class FacilityFormComponent extends EntityFormBaseComponent implements On
     }
 
     this.initializeForm();
+    this.loadSiblingFacilityNames(this.form.get('collectionId')?.value);
+    this.form.get('collectionId').valueChanges.subscribe((collectionId) => {
+      this.loadSiblingFacilityNames(collectionId);
+    });
 
     effect(() => {
       this.updateLocationMarkers();
@@ -144,7 +151,8 @@ export class FacilityFormComponent extends EntityFormBaseComponent implements On
     }, {
       validators: [
         this.coordinatesWithinBoundsValidator,
-        this.displayNameValidator
+        this.displayNameValidator,
+        this.duplicateDisplayNameValidator
       ]
     });
 
@@ -154,6 +162,9 @@ export class FacilityFormComponent extends EntityFormBaseComponent implements On
     this.form.get('displayName').valueChanges.subscribe((value) => {
       this.markerOptions['displayName'] = value;
       this.updateLocationMarkers();
+      this.form.updateValueAndValidity({ emitEvent: false });
+      // Without this the duplicate-name error banner isn't re-read on the next keystroke (#392)
+      this.cdr.detectChanges();
     });
     this.form.get('facilityType').valueChanges.subscribe(() => {
       this.updateFacilitySubTypeOptions();
@@ -306,6 +317,37 @@ export class FacilityFormComponent extends EntityFormBaseComponent implements On
       return null;
     }
     return { invalidDisplayName: true };
+  }
+
+  // Custom validator to block a facility name already used elsewhere in the same park (#392)
+  private duplicateDisplayNameValidator = (control: AbstractControl) => {
+    const group = control as UntypedFormGroup;
+    const displayName = String(group.get('displayName')?.value || '').trim().toLowerCase();
+    if (!displayName) {
+      return null;
+    }
+    const isOwnName = this.facility?.displayName
+      && String(this.facility.displayName).trim().toLowerCase() === displayName;
+    if (isOwnName) {
+      return null;
+    }
+    return this.siblingFacilityNames.has(displayName) ? { duplicateDisplayName: true } : null;
+  }
+
+  private async loadSiblingFacilityNames(collectionId: string) {
+    if (!collectionId) {
+      this.siblingFacilityNames = new Set();
+      return;
+    }
+    const res = await this.facilityService.getFacilitiesByCollectionId(collectionId);
+    const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
+    this.siblingFacilityNames = new Set(
+      items
+        .filter((item) => item?.facilityId !== this.facility?.facilityId)
+        .map((item) => String(item?.displayName || '').trim().toLowerCase())
+    );
+    this.form.updateValueAndValidity({ emitEvent: false });
+    this.cdr.detectChanges();
   }
 
   // Validator to inform the user when their lat/long is whack
