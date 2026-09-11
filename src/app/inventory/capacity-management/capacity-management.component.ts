@@ -615,12 +615,11 @@ export class CapacityManagementComponent implements OnInit {
         if (!skipDueToOverride && !skipDueToScheduled) {
           const dayOfWeek = current.getUTCDay();
           const dayConfig = days[dayOfWeek];
-          if (dayConfig) {
-            const capacity = dayConfig.passesRequired ? dayConfig.defaultCapacity : 0;
+          if (dayConfig?.passesRequired) {
             const day: CalendarDay = { date: new Date(current), isCurrentMonth: true };
             // If overwriting a manual override, clear the manual edit flag
             const clearManualEdit = hasOverrideBadge && overwriteOverrides;
-            await this.updateSingleDay(day, capacity, false, undefined, clearManualEdit);
+            await this.updateSingleDay(day, dayConfig.defaultCapacity, false, undefined, clearManualEdit);
           }
         }
         current.setDate(current.getDate() + 1);
